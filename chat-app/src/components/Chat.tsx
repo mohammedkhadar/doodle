@@ -37,6 +37,7 @@ export default function Chat() {
   const [hasMore, setHasMore] = useState(true);
   const [activeAuthor, setActiveAuthor] = useState(DEFAULT_AUTHOR);
   const [scrollToEndSignal, setScrollToEndSignal] = useState(0);
+  const [loadMoreSignal, setLoadMoreSignal] = useState(0);
   const messagesRef = useRef<Message[]>([]);
   const didInitialScrollRef = useRef(false);
   messagesRef.current = messages;
@@ -98,6 +99,7 @@ export default function Chat() {
       } else {
         setMessages((prev) => mergeMessagesWithServer(data, prev));
         setHasMore(data.length === 100);
+        setLoadMoreSignal((v) => v + 1);
       }
     } catch (err) {
       console.error("Failed to load more messages:", err);
@@ -162,6 +164,7 @@ export default function Chat() {
           activeAuthor={activeAuthor}
           onLoadMore={loadMoreMessages}
           scrollToEndSignal={scrollToEndSignal}
+          loadMoreSignal={loadMoreSignal}
         />
       </div>
       <MessageInput

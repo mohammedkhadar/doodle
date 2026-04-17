@@ -115,6 +115,8 @@ interface MessageListProps {
   onLoadMore: () => void;
   /** Increment after a successful send to scroll the list to the latest message. */
   scrollToEndSignal: number;
+  /** Increment after loading older messages (should NOT auto-scroll). */
+  loadMoreSignal: number;
 }
 
 const GAP = 16;
@@ -128,6 +130,7 @@ export function MessageList({
   activeAuthor,
   onLoadMore,
   scrollToEndSignal,
+  loadMoreSignal,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -162,6 +165,11 @@ export function MessageList({
     scrollToLatest();
     setIsNearBottom(true);
   }, [scrollToEndSignal, messages.length, scrollToLatest]);
+
+  useLayoutEffect(() => {
+    if (loadMoreSignal === 0) return;
+    setIsNearBottom(false);
+  }, [loadMoreSignal]);
 
   useEffect(() => {
     if (!isNearBottom || messages.length === 0) return;
