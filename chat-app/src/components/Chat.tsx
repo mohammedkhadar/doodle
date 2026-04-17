@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Message } from "@/types/message";
 import { fetchMessages, createMessage } from "@/lib/api";
 import { MessageList } from "@/components/MessageList";
@@ -16,6 +16,18 @@ function sortMessagesByDate(messages: Message[]) {
   );
 }
 
+/** Merge server fetch with local state so polling does not drop a message that is not in the latest API page yet. */
+function mergeMessagesWithServer(server: Message[], previous: Message[]): Message[] {
+  const byId = new Map<string, Message>();
+  for (const m of sortMessagesByDate(server)) {
+    byId.set(m.id, m);
+  }
+  for (const m of previous) {
+    if (!byId.has(m.id)) byId.set(m.id, m);
+  }
+  return sortMessagesByDate([...byId.values()]);
+}
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,6 +36,10 @@ export default function Chat() {
   const [isSending, setIsSending] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeAuthor, setActiveAuthor] = useState(DEFAULT_AUTHOR);
+  const [scrollToEndSignal, setScrollToEndSignal] = useState(0);
+  const messagesRef = useRef<Message[]>([]);
+  const didInitialScrollRef = useRef(false);
+  messagesRef.current = messages;
 
   useEffect(() => {
     const storedAuthor = window.localStorage.getItem("chat-author")?.trim();
@@ -33,11 +49,29 @@ export default function Chat() {
     }
   }, []);
 
+  /**
+   * Initial load (empty state): `before: now` asks for the latest window of messages.
+   * Poll (we already have messages): `after: newest` fetches only newer rows so we do not
+   * replace the view with an "oldest-first" page that omits the latest message.
+   */
   const loadMessages = useCallback(async () => {
     try {
-      const data = await fetchMessages({ limit: 100 });
-      setMessages(sortMessagesByDate(data));
-      setHasMore(data.length === 100);
+      const prev = messagesRef.current;
+      const sorted = sortMessagesByDate(prev);
+      const newest = sorted.length > 0 ? sorted[sorted.length - 1].createdAt : undefined;
+
+      const data = await fetchMessages(
+        newest
+          ? { limit: 100, after: newest }
+          : { limit: 100, before: new Date().toISOString() }
+      );
+
+      setMessages((state) => mergeMessagesWithServer(data, state));
+
+      if (!newest) {
+        setHasMore(data.length === 100);
+      }
+
       if (error) setError(null);
     } catch (err) {
       if (err instanceof Error) {
@@ -62,7 +96,7 @@ export default function Chat() {
       if (data.length === 0) {
         setHasMore(false);
       } else {
-        setMessages([...data, ...messages]);
+        setMessages((prev) => mergeMessagesWithServer(data, prev));
         setHasMore(data.length === 100);
       }
     } catch (err) {
@@ -86,6 +120,12 @@ export default function Chat() {
     return () => clearInterval(intervalId);
   }, [loadMessages]);
 
+  useEffect(() => {
+    if (isLoading || messages.length === 0 || didInitialScrollRef.current) return;
+    didInitialScrollRef.current = true;
+    setScrollToEndSignal((v) => v + 1);
+  }, [isLoading, messages.length]);
+
   const handleSendMessage = async (messageText: string, author: string) => {
     setIsSending(true);
     setError(null);
@@ -97,7 +137,8 @@ export default function Chat() {
       });
       setActiveAuthor(author);
       window.localStorage.setItem("chat-author", author);
-      setMessages((prev) => [...prev, newMessage]);
+      setMessages((prev) => sortMessagesByDate([...prev, newMessage]));
+      setScrollToEndSignal((v) => v + 1);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -111,7 +152,7 @@ export default function Chat() {
 
   return (
     <div className="chat-wallpaper h-screen">
-      <div className="mx-auto flex h-full w-full max-w-[1280px] flex-col">
+      <div className="mx-auto flex h-full w-full max-w-[640px] flex-col px-6">
         <MessageList
           messages={messages}
           isLoading={isLoading}
@@ -120,6 +161,7 @@ export default function Chat() {
           error={error}
           activeAuthor={activeAuthor}
           onLoadMore={loadMoreMessages}
+          scrollToEndSignal={scrollToEndSignal}
         />
       </div>
       <MessageInput

@@ -44,13 +44,15 @@ function formatTimestamp(dateString: string): string {
 
 const MessageBubble = memo(function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
   return (
-    <div className={`flex w-full ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`flex w-full min-w-0 ${isOwnMessage ? "justify-end" : "justify-start"}`}
+    >
       <article
         className={[
-          "rounded-none border px-4 py-3",
+          "box-border w-fit min-w-0 max-w-[420px] rounded-[3px] border px-4 py-3",
           isOwnMessage
-            ? "max-w-[min(42rem,92%)] border-[#e0d28a] bg-[#fff9c4] text-[#333333]"
-            : "w-full max-w-[18.5rem] border-[#d8d8d8] bg-white text-[#333333]",
+            ? "border-[#e0d28a] bg-[#fff9c4] text-[#333333]"
+            : "border-[#d8d8d8] bg-white text-[#333333]",
         ].join(" ")}
       >
         {!isOwnMessage && (
@@ -59,7 +61,7 @@ const MessageBubble = memo(function MessageBubble({ message, isOwnMessage }: Mes
           </p>
         )}
         <p
-          className={`break-words ${
+          className={`break-words [overflow-wrap:anywhere] ${
             isOwnMessage
               ? "text-[16px] leading-[1.45]"
               : "mt-2 text-[16px] leading-[1.4]"
@@ -89,7 +91,7 @@ function MessageState({
   tone?: "neutral" | "error";
 }) {
   return (
-    <div className="flex flex-1 items-center justify-center px-6 py-12">
+    <div className="flex flex-1 items-center justify-center py-12">
       <div
         className={[
           "max-w-md rounded-[6px] border bg-white/90 px-6 py-5 text-center shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
@@ -111,6 +113,8 @@ interface MessageListProps {
   error: string | null;
   activeAuthor: string;
   onLoadMore: () => void;
+  /** Increment after a successful send to scroll the list to the latest message. */
+  scrollToEndSignal: number;
 }
 
 const GAP = 16;
@@ -123,6 +127,7 @@ export function MessageList({
   error,
   activeAuthor,
   onLoadMore,
+  scrollToEndSignal,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -138,6 +143,7 @@ export function MessageList({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 90,
     overscan: 10,
+    getItemKey: (index) => messages[index]?.id ?? index,
     measureElement: (el) => el.getBoundingClientRect().height + GAP,
   });
 
@@ -150,6 +156,12 @@ export function MessageList({
     if (!isNearBottom || messages.length === 0) return;
     scrollToLatest();
   }, [isNearBottom, messages.length, scrollToLatest]);
+
+  useLayoutEffect(() => {
+    if (scrollToEndSignal === 0 || messages.length === 0) return;
+    scrollToLatest();
+    setIsNearBottom(true);
+  }, [scrollToEndSignal, messages.length, scrollToLatest]);
 
   useEffect(() => {
     if (!isNearBottom || messages.length === 0) return;
@@ -225,7 +237,7 @@ export function MessageList({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="flex-1 h-full overflow-y-auto px-5 pb-24 pt-6 sm:px-10 sm:pb-24 lg:px-20"
+      className="flex-1 h-full overflow-y-auto pt-6 pb-[calc(16px+3.5rem)]"
     >
       {isLoadingMore && (
         <div className="flex justify-center py-4">
