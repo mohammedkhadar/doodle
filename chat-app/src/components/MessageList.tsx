@@ -1,6 +1,14 @@
 "use client";
 
-import { useRef, useEffect, useMemo, memo, useState } from "react";
+import {
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  memo,
+  useState,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "@/types/message";
 
@@ -117,7 +125,10 @@ export function MessageList({
   onLoadMore,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const isNearBottomRef = useRef(isNearBottom);
+  isNearBottomRef.current = isNearBottom;
 
   // TanStack Virtual is intentionally used here for large lists, and the
   // React Compiler warning is expected with this hook's API surface.
@@ -130,15 +141,40 @@ export function MessageList({
     measureElement: (el) => el.getBoundingClientRect().height + GAP,
   });
 
+  const scrollToLatest = useCallback(() => {
+    if (messages.length === 0) return;
+    virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+  }, [messages.length, virtualizer]);
+
+  useLayoutEffect(() => {
+    if (!isNearBottom || messages.length === 0) return;
+    scrollToLatest();
+  }, [isNearBottom, messages.length, scrollToLatest]);
+
   useEffect(() => {
-    if (isNearBottom && scrollRef.current && messages.length > 0) {
+    if (!isNearBottom || messages.length === 0) return;
+    scrollToLatest();
+    const outer = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
+        scrollToLatest();
       });
-    }
-  }, [messages.length, isNearBottom]);
+    });
+    return () => cancelAnimationFrame(outer);
+  }, [isNearBottom, messages.length, scrollToLatest]);
+
+  useEffect(() => {
+    const inner = innerRef.current;
+    if (!inner || typeof ResizeObserver === "undefined") return;
+
+    const ro = new ResizeObserver(() => {
+      if (!isNearBottomRef.current || messages.length === 0) return;
+      const last = messages.length - 1;
+      virtualizer.scrollToIndex(last, { align: "end" });
+    });
+
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [messages.length, virtualizer]);
 
   const handleScroll = () => {
     if (scrollRef.current) {
@@ -197,6 +233,7 @@ export function MessageList({
         </div>
       )}
       <div
+        ref={innerRef}
         style={{
           height: `${virtualizer.getTotalSize()}px`,
           width: "100%",
