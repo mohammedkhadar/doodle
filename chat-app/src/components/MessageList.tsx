@@ -39,14 +39,14 @@ const MessageBubble = memo(function MessageBubble({ message, isOwnMessage }: Mes
     <div className={`flex w-full ${isOwnMessage ? "justify-end" : "justify-start"}`}>
       <article
         className={[
-          "rounded-[6px] border px-4 py-3 shadow-[0_2px_6px_rgba(0,0,0,0.08)]",
+          "rounded-none border px-4 py-3",
           isOwnMessage
-            ? "max-w-[min(42rem,92%)] border-[#e7d780] bg-[#fff6bf] text-[#726a4d]"
-            : "w-full max-w-[18.5rem] border-[#d8d8d8] bg-white text-[#777d86]",
+            ? "max-w-[min(42rem,92%)] border-[#e0d28a] bg-[#fff9c4] text-[#333333]"
+            : "w-full max-w-[18.5rem] border-[#d8d8d8] bg-white text-[#333333]",
         ].join(" ")}
       >
         {!isOwnMessage && (
-          <p className="text-[12px] leading-[1.2] text-[#c8cdd3]">
+          <p className="text-[12px] leading-[1.2] text-[#999999]">
             {decodeEntities(message.author)}
           </p>
         )}
@@ -61,7 +61,7 @@ const MessageBubble = memo(function MessageBubble({ message, isOwnMessage }: Mes
         </p>
         <p
           className={`mt-3 text-[12px] ${
-            isOwnMessage ? "text-right text-[#d8c97d]" : "text-[#c8cdd3]"
+            isOwnMessage ? "text-right text-[#8a7968]" : "text-[#999999]"
           }`}
         >
           {formatTimestamp(message.createdAt)}

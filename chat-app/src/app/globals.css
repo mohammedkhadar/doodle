@@ -4,7 +4,7 @@
   --background: #f5f7fa;
   --foreground: #6f7680;
   --chat-blue: #3498db;
-  --chat-coral: #ff7f6b;
+  --chat-coral: #ff8a65;
 }
 
 @theme inline {
@@ -48,7 +48,7 @@ body {
 
 .chat-wallpaper {
   position: relative;
-  background-color: #fdfdfd;
+  background-color: #f2f2f2;
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.62)),
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='55' height='55' viewBox='0 0 220 220'%3E%3Cg fill='none' stroke='%23d3d9df' stroke-width='2.35' stroke-linecap='round' stroke-linejoin='round' opacity='1'%3E%3Cpath d='M20 28c12-12 30-12 42 0 12 12 12 30 0 42-12 12-30 12-42 0-12-12-12-30 0-42Z'/%3E%3Cpath d='M138 28l16 31 35 5-25 24 6 35-32-17-31 17 6-35-25-24 35-5 15-31Z'/%3E%3Cpath d='M40 126c22-18 54-15 72 8-22 18-54 15-72-8Z'/%3E%3Cpath d='M174 146c0 17-14 31-31 31s-31-14-31-31 14-31 31-31 31 14 31 31Z'/%3E%3Cpath d='M133 140c12 5 18 18 13 29-12-5-18-18-13-29Z'/%3E%3Cpath d='M54 176c12-10 28-10 40 0'/%3E%3Cpath d='M64 168v18M84 168v18'/%3E%3Cpath d='M14 84h26M27 71v26'/%3E%3Cpath d='M182 180l18-18M182 162l18 18'/%3E%3Cpath d='M93 18l8 11 13 2-9 9 2 13-12-6-11 6 2-13-9-9 13-2 7-11Z'/%3E%3Cpath d='M108 84c0-10 8-18 18-18 9 0 17 8 17 18 0 15-18 23-18 23s-17-8-17-23Z'/%3E%3Cpath d='M92 111c10-2 20 5 22 15-10 3-20-4-22-15Z'/%3E%3Cpath d='M180 112c10 0 18 8 18 18s-8 18-18 18-18-8-18-18 8-18 18-18Z'/%3E%3Cpath d='M171 110l9 10 13-2-7 12 7 12-13-2-9 10-2-13-12-5 12-5 2-13Z'/%3E%3Cpath d='M22 150l11-12 12 12-12 11-11-11Z'/%3E%3Cpath d='M18 194c9-8 22-8 31 0'/%3E%3Cpath d='M111 183l9-11 12 11-12 10-9-10Z'/%3E%3Cpath d='M145 191h20M155 181v20'/%3E%3Cpath d='M197 34c0 8-7 15-15 15s-15-7-15-15 7-15 15-15 15 7 15 15Z'/%3E%3Cpath d='M61 83c0 7-6 13-13 13s-13-6-13-13 6-13 13-13 13 6 13 13Z'/%3E%3C/g%3E%3C/svg%3E");

@@ -86,11 +86,6 @@ export default function Chat() {
     return () => clearInterval(intervalId);
   }, [loadMessages]);
 
-  const handleAuthorChange = (author: string) => {
-    setActiveAuthor(author);
-    window.localStorage.setItem("chat-author", author);
-  };
-
   const handleSendMessage = async (messageText: string, author: string) => {
     setIsSending(true);
     setError(null);
@@ -100,6 +95,8 @@ export default function Chat() {
         message: messageText,
         author,
       });
+      setActiveAuthor(author);
+      window.localStorage.setItem("chat-author", author);
       setMessages((prev) => [...prev, newMessage]);
     } catch (err) {
       if (err instanceof Error) {
@@ -127,7 +124,6 @@ export default function Chat() {
       </div>
       <MessageInput
         activeAuthor={activeAuthor}
-        onAuthorChange={handleAuthorChange}
         onSendMessage={handleSendMessage}
         isSending={isSending}
       />
