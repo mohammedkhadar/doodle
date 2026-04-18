@@ -1,67 +1,7 @@
 import { render, screen } from '@testing-library/react'
+import { MessageBubble } from '@/components/MessageBubble'
 import { Message } from '@/types/message'
-
-// Extract MessageBubble for isolated testing
-const MessageBubble = ({ message, isOwnMessage }: { message: Message; isOwnMessage: boolean }) => {
-  function decodeEntities(text: string) {
-    return text
-      .replaceAll("&#39;", "'")
-      .replaceAll("&quot;", '"')
-      .replaceAll("&amp;", "&");
-  }
-
-  function formatTimestamp(dateString: string): string {
-    const date = new Date(dateString)
-    return (
-      date.toLocaleDateString("en-US", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }) +
-      " " +
-      date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      })
-    )
-  }
-
-  return (
-    <div className={`flex w-full min-w-0 ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-      <article
-        className={[
-          "box-border w-fit min-w-0 max-w-[420px] rounded-[3px] border px-4 py-4",
-          isOwnMessage
-            ? "border-[#e0d28a] bg-[#fff9c4] text-[#333333]"
-            : "border-[#d8d8d8] bg-white text-[#333333]",
-        ].join(" ")}
-      >
-        {!isOwnMessage && (
-          <p className="text-[12px] leading-[1.2] text-[#999999]">
-            {decodeEntities(message.author)}
-          </p>
-        )}
-        <p
-          className={`break-words [overflow-wrap:anywhere] ${
-            isOwnMessage
-              ? "text-[16px] leading-[1.45]"
-              : "mt-2 text-[16px] leading-[1.4]"
-          }`}
-        >
-          {decodeEntities(message.message)}
-        </p>
-        <p
-          className={`mt-3 text-[12px] ${
-            isOwnMessage ? "text-right text-[#8a7968]" : "text-[#999999]"
-          }`}
-        >
-          {formatTimestamp(message.createdAt)}
-        </p>
-      </article>
-    </div>
-  )
-}
+import { __resetFormatCaches } from '@/lib/format'
 
 describe('MessageBubble', () => {
   const message: Message = {
@@ -70,6 +10,10 @@ describe('MessageBubble', () => {
     author: 'alice',
     createdAt: '2026-04-18T10:30:45Z',
   }
+
+  beforeEach(() => {
+    __resetFormatCaches()
+  })
 
   it('renders message content', () => {
     render(<MessageBubble message={message} isOwnMessage={false} />)
@@ -86,7 +30,6 @@ describe('MessageBubble', () => {
     expect(screen.queryByText('alice')).not.toBeInTheDocument()
   })
 
-
   it('decodes HTML entities in author name', () => {
     const msgWithEntity = {
       ...message,
@@ -99,6 +42,7 @@ describe('MessageBubble', () => {
   it('decodes HTML entities in message', () => {
     const msgWithEntity = {
       ...message,
+      id: '2',
       message: 'She said &quot;hello&quot; &amp; waved',
     }
     render(<MessageBubble message={msgWithEntity} isOwnMessage={false} />)

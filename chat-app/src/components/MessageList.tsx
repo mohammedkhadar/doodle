@@ -1,109 +1,12 @@
 "use client";
 
-import {
-  useRef,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useMemo,
-  memo,
-  useState,
-} from "react";
+import { useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Message } from "@/types/message";
-
-interface MessageBubbleProps {
-  message: Message;
-  isOwnMessage: boolean;
-}
-
-function decodeEntities(text: string) {
-  return text
-    .replaceAll("&#39;", "'")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&amp;", "&");
-}
-
-function formatTimestamp(dateString: string): string {
-  const date = new Date(dateString);
-
-  return (
-    date.toLocaleDateString("en-US", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }) +
-    " " +
-    date.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    })
-  );
-}
-
-const MessageBubble = memo(function MessageBubble({ message, isOwnMessage }: MessageBubbleProps) {
-  return (
-    <div
-      className={`flex w-full min-w-0 ${isOwnMessage ? "justify-end" : "justify-start"}`}
-    >
-      <article
-        className={[
-          "box-border w-fit min-w-0 max-w-[420px] rounded-[3px] border px-4 py-3",
-          isOwnMessage
-            ? "border-[#e0d28a] bg-[#fff9c4] text-[#333333]"
-            : "border-[#d8d8d8] bg-white text-[#333333]",
-        ].join(" ")}
-      >
-        {!isOwnMessage && (
-          <p className="text-[12px] leading-[1.2] text-[#999999]">
-            {decodeEntities(message.author)}
-          </p>
-        )}
-        <p
-          className={`break-words [overflow-wrap:anywhere] ${
-            isOwnMessage
-              ? "text-[16px] leading-[1.45]"
-              : "mt-2 text-[16px] leading-[1.4]"
-          }`}
-        >
-          {decodeEntities(message.message)}
-        </p>
-        <p
-          className={`mt-3 text-[12px] ${
-            isOwnMessage ? "text-right text-[#8a7968]" : "text-[#999999]"
-          }`}
-        >
-          {formatTimestamp(message.createdAt)}
-        </p>
-      </article>
-    </div>
-  );
-});
-
-function MessageState({
-  title,
-  detail,
-  tone = "neutral",
-}: {
-  title: string;
-  detail: string;
-  tone?: "neutral" | "error";
-}) {
-  return (
-    <div className="flex flex-1 items-center justify-center py-12">
-      <div
-        className={[
-          "max-w-md rounded-[6px] border bg-white/90 px-6 py-5 text-center shadow-[0_2px_8px_rgba(0,0,0,0.08)]",
-          tone === "error" ? "border-[#ff9e8d]" : "border-[#d8d8d8]",
-        ].join(" ")}
-      >
-        <p className="text-lg font-medium text-[#6d7380]">{title}</p>
-        <p className="mt-2 text-sm text-[#9097a0]">{detail}</p>
-      </div>
-    </div>
-  );
-}
+import { GAP } from "@/lib/constants";
+import { MessageBubble } from "@/components/MessageBubble";
+import { MessageState } from "@/components/MessageState";
+import { useScrollCoordinator } from "@/hooks/useScrollCoordinator";
 
 interface MessageListProps {
   messages: Message[];
@@ -119,8 +22,6 @@ interface MessageListProps {
   loadMoreSignal: number;
 }
 
-const GAP = 16;
-
 export function MessageList({
   messages,
   isLoading,
@@ -134,9 +35,6 @@ export function MessageList({
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
-  const [isNearBottom, setIsNearBottom] = useState(true);
-  const isNearBottomRef = useRef(isNearBottom);
-  isNearBottomRef.current = isNearBottom;
 
   // TanStack Virtual is intentionally used here for large lists, and the
   // React Compiler warning is expected with this hook's API surface.
@@ -150,62 +48,17 @@ export function MessageList({
     measureElement: (el) => el.getBoundingClientRect().height + GAP,
   });
 
-  const scrollToLatest = useCallback(() => {
-    if (messages.length === 0) return;
-    virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
-  }, [messages.length, virtualizer]);
-
-  useLayoutEffect(() => {
-    if (!isNearBottom || messages.length === 0) return;
-    scrollToLatest();
-  }, [isNearBottom, messages.length, scrollToLatest]);
-
-  useLayoutEffect(() => {
-    if (scrollToEndSignal === 0 || messages.length === 0) return;
-    scrollToLatest();
-    setIsNearBottom(true);
-  }, [scrollToEndSignal, messages.length, scrollToLatest]);
-
-  useLayoutEffect(() => {
-    if (loadMoreSignal === 0) return;
-    setIsNearBottom(false);
-  }, [loadMoreSignal]);
-
-  useEffect(() => {
-    if (!isNearBottom || messages.length === 0) return;
-    scrollToLatest();
-    const outer = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        scrollToLatest();
-      });
-    });
-    return () => cancelAnimationFrame(outer);
-  }, [isNearBottom, messages.length, scrollToLatest]);
-
-  useEffect(() => {
-    const inner = innerRef.current;
-    if (!inner || typeof ResizeObserver === "undefined") return;
-
-    const ro = new ResizeObserver(() => {
-      if (!isNearBottomRef.current || messages.length === 0) return;
-      const last = messages.length - 1;
-      virtualizer.scrollToIndex(last, { align: "end" });
-    });
-
-    ro.observe(inner);
-    return () => ro.disconnect();
-  }, [messages.length, virtualizer]);
-
-  const handleScroll = () => {
-    if (scrollRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-      setIsNearBottom(scrollHeight - scrollTop - clientHeight < 100);
-
-      if (scrollTop < 50 && hasMore && !isLoadingMore) {
-        onLoadMore();
-      }
-    }
-  };
+  const { handleScroll } = useScrollCoordinator({
+    virtualizer,
+    scrollRef,
+    innerRef,
+    messageCount: messages.length,
+    scrollToEndSignal,
+    loadMoreSignal,
+    hasMore,
+    isLoadingMore,
+    onLoadMore,
+  });
 
   const isOwnMessage = useMemo(
     () =>
