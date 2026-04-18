@@ -44,7 +44,7 @@ export default function MessageInput({
       onSubmit={handleSubmit}
       className="fixed inset-x-0 bottom-0 z-20 border-t border-[#2f82bf] bg-[#3498db] py-2"
     >
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-2 px-6">
+      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-2 px-2 md:px-6">
         <div className="flex gap-4">
           <textarea
             placeholder="Message"
