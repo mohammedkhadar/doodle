@@ -4,11 +4,21 @@ import * as api from '@/lib/api'
 
 jest.mock('@/lib/api')
 jest.mock('@/components/MessageList', () => ({
-  MessageList: ({ messages, isLoading, error, onLoadMore }: Record<string, unknown>) => (
+  MessageList: ({
+    messages = [],
+    isLoading = false,
+    error = null,
+    onLoadMore = () => {},
+  }: {
+    messages?: any[];
+    isLoading?: boolean;
+    error?: string | null;
+    onLoadMore?: () => void;
+  }) => (
     <div data-testid="message-list">
-      {isLoading && <div>Loading</div>}
-      {error && <div>Error: {error}</div>}
-      {(messages as unknown[]).length > 0 && <div>{(messages as unknown[]).length} messages</div>}
+      {isLoading ? <div>Loading</div> : null}
+      {error ? <div>Error: {error}</div> : null}
+      {messages.length > 0 ? <div>{messages.length} messages</div> : null}
       <button onClick={onLoadMore} data-testid="load-more">Load More</button>
     </div>
   ),
@@ -16,7 +26,15 @@ jest.mock('@/components/MessageList', () => ({
 
 jest.mock('@/components/MessageInput', () => ({
   __esModule: true,
-  default: ({ activeAuthor, onSendMessage, isSending }: Record<string, unknown>) => (
+  default: ({
+    activeAuthor = '',
+    onSendMessage = async () => {},
+    isSending = false,
+  }: {
+    activeAuthor?: string;
+    onSendMessage?: (message: string, author: string) => Promise<void>;
+    isSending?: boolean;
+  }) => (
     <div data-testid="message-input">
       <div>{activeAuthor}</div>
       <div>{isSending ? 'Sending' : 'Ready'}</div>
