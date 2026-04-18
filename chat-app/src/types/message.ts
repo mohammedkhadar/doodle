@@ -9,8 +9,3 @@ export interface CreateMessagePayload {
   message: string;
   author: string;
 }
-
-export interface ApiResponse<T> {
-  data: T;
-  error?: string;
-}
