@@ -1,7 +1,6 @@
 import { Message, CreateMessagePayload } from "@/types/message";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-const AUTH_TOKEN = process.env.NEXT_PUBLIC_AUTH_TOKEN || "super-secret-doodle-token";
+const API_BASE_PATH = "/api/messages";
 
 interface FetchMessagesOptions {
   limit?: number;
@@ -42,14 +41,10 @@ async function fetchMessages(options: FetchMessagesOptions = {}): Promise<Messag
   if (options.after) params.append("after", options.after);
   if (options.before) params.append("before", options.before);
 
-  const url = `${API_BASE_URL}/api/v1/messages${params.toString() ? `?${params}` : ""}`;
+  const url = `${API_BASE_PATH}${params.toString() ? `?${params}` : ""}`;
 
   const response = await fetch(url, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${AUTH_TOKEN}`,
-      "Content-Type": "application/json",
-    },
   });
 
   if (!response.ok) {
@@ -62,10 +57,9 @@ async function fetchMessages(options: FetchMessagesOptions = {}): Promise<Messag
 }
 
 async function createMessage(payload: CreateMessagePayload): Promise<Message> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/messages`, {
+  const response = await fetch(API_BASE_PATH, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${AUTH_TOKEN}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),

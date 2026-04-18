@@ -5,3 +5,4 @@ chat-app/node_modules/
 chat-app/.next/
 chat-app/.claude
 chat-app/.DS_Store
+chat-app/.env.local

@@ -178,7 +178,7 @@ describe('api - extended cases', () => {
       expect(result.id).toMatch(/^local-/)
     })
 
-    it('sends auth header', async () => {
+    it('calls local messages endpoint', async () => {
       ;(global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,
         json: async () => ({ id: '1', message: 'msg', author: 'a', createdAt: '2026-04-18T10:00:00Z' }),
@@ -186,8 +186,8 @@ describe('api - extended cases', () => {
 
       await createMessage({ message: 'test', author: 'a' })
 
-      const headers = (global.fetch as jest.Mock).mock.calls[0][1].headers
-      expect(headers.Authorization).toMatch(/^Bearer /)
+      const url = (global.fetch as jest.Mock).mock.calls[0][0]
+      expect(url).toBe('/api/messages')
     })
 
     it('sends correct content-type header', async () => {

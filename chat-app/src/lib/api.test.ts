@@ -82,7 +82,7 @@ describe('api', () => {
       expect(result.id).toBe('new-1')
       expect(result.author).toBe('charlie')
       expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v1/messages'),
+        '/api/messages',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ message: 'hello world', author: 'charlie' }),
