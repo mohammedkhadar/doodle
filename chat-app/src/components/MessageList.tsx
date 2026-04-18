@@ -117,13 +117,8 @@ export function MessageList({
               key={message.id}
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
+              className="absolute top-0 left-0 w-full"
+              style={{ transform: `translateY(${virtualItem.start}px)` }}
             >
               <MessageBubble
                 message={message}
