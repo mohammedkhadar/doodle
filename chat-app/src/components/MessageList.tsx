@@ -1,10 +1,14 @@
 "use client";
 
-import { useRef, useMemo, useEffect, useCallback } from "react";
+import { useRef, useMemo, useEffect, useLayoutEffect, useCallback } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Message } from "@/types/message";
 import { MessageBubble } from "@/components/MessageBubble";
 import { MessageState } from "@/components/MessageState";
+
+const BOTTOM_THRESHOLD_PX = 120;
+const PREPEND_HEIGHT_PASSES_TO_IGNORE = 2;
+const VIEWPORT_OVERSCAN_PX = 200;
 
 interface MessageListProps {
   messages: Message[];
@@ -33,28 +37,16 @@ export function MessageList({
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const isAtBottomRef = useRef(true);
-  const previousMessageCountRef = useRef(messages.length);
-  const skipAutoScrollRef = useRef(false);
+  const skipNextFollowRef = useRef(false);
+  const ignoredHeightPassesRef = useRef(0);
 
-  const scrollToLatest = useCallback(() => {
-    if (messages.length === 0) return;
-    const latestIndex = messages.length - 1;
-    virtuosoRef.current?.scrollToIndex({
-      index: latestIndex,
-      align: "end",
-      behavior: "auto",
-    });
-    // Re-run after layout settles so multiline bubbles are fully visible.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        virtuosoRef.current?.scrollToIndex({
-          index: latestIndex,
-          align: "end",
-          behavior: "auto",
-        });
-      });
-    });
-  }, [messages.length]);
+  useEffect(() => {
+    if (loadMoreSignal > 0) {
+      // Prepends should preserve viewport position, not yank to bottom.
+      skipNextFollowRef.current = true;
+      ignoredHeightPassesRef.current = PREPEND_HEIGHT_PASSES_TO_IGNORE;
+    }
+  }, [loadMoreSignal]);
 
   const isOwnMessage = useMemo(
     () =>
@@ -68,36 +60,38 @@ export function MessageList({
     [activeAuthor]
   );
 
-  useEffect(() => {
-    if (loadMoreSignal > 0) {
-      // Loading older messages prepends entries; keep viewport anchored.
-      skipAutoScrollRef.current = true;
-    }
-  }, [loadMoreSignal]);
+  const scrollToLastMessage = useCallback(() => {
+    if (messages.length === 0) return;
+    const list = virtuosoRef.current;
+    if (!list) return;
+    const lastIndex = messages.length - 1;
+    list.scrollToIndex({ index: lastIndex, align: "end", behavior: "auto" });
+    list.autoscrollToBottom();
+  }, [messages.length]);
 
-  useEffect(() => {
-    const previousCount = previousMessageCountRef.current;
-    previousMessageCountRef.current = messages.length;
-
-    if (messages.length === 0 || previousCount === 0 || messages.length <= previousCount) {
+  const handleListHeightChange = () => {
+    if (ignoredHeightPassesRef.current > 0) {
+      ignoredHeightPassesRef.current -= 1;
       return;
     }
+    if (!isAtBottomRef.current) return;
+    virtuosoRef.current?.autoscrollToBottom();
+  };
 
-    if (skipAutoScrollRef.current) {
-      skipAutoScrollRef.current = false;
-      return;
+  const handleFollowOutput = (isAtBottom: boolean) => {
+    if (skipNextFollowRef.current) {
+      skipNextFollowRef.current = false;
+      return false;
     }
+    return isAtBottom ? "auto" : false;
+  };
 
-    if (isAtBottomRef.current) {
-      scrollToLatest();
-    }
-  }, [messages.length, scrollToLatest]);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (scrollToEndSignal === 0 || messages.length === 0) return;
     isAtBottomRef.current = true;
-    scrollToLatest();
-  }, [scrollToEndSignal, messages.length, scrollToLatest]);
+    scrollToLastMessage();
+    queueMicrotask(scrollToLastMessage);
+  }, [scrollToEndSignal, messages.length, scrollToLastMessage]);
 
   if (isLoading && messages.length === 0) {
     return (
@@ -127,10 +121,14 @@ export function MessageList({
       data-testid="message-list"
       className="flex-1 h-full pt-6"
       data={messages}
-      initialTopMostItemIndex={Math.max(messages.length - 1, 0)}
+      alignToBottom
+      increaseViewportBy={VIEWPORT_OVERSCAN_PX}
+      atBottomThreshold={BOTTOM_THRESHOLD_PX}
       atBottomStateChange={(isAtBottom) => {
         isAtBottomRef.current = isAtBottom;
       }}
+      totalListHeightChanged={handleListHeightChange}
+      followOutput={handleFollowOutput}
       atTopStateChange={(isAtTop) => {
         if (isAtTop && hasMore && !isLoadingMore) {
           onLoadMore();
