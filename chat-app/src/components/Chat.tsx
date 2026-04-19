@@ -14,7 +14,6 @@ export default function Chat() {
     hasMore,
     activeAuthor,
     scrollToEndSignal,
-    loadMoreSignal,
     loadMoreMessages,
     handleSendMessage,
   } = useChatMessages();
@@ -31,7 +30,6 @@ export default function Chat() {
           activeAuthor={activeAuthor}
           onLoadMore={loadMoreMessages}
           scrollToEndSignal={scrollToEndSignal}
-          loadMoreSignal={loadMoreSignal}
         />
       </div>
       <MessageInput

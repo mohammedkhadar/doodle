@@ -41,7 +41,6 @@ interface UseChatMessagesResult {
   hasMore: boolean;
   activeAuthor: string;
   scrollToEndSignal: number;
-  loadMoreSignal: number;
   loadMoreMessages: () => Promise<void>;
   handleSendMessage: (messageText: string, author: string) => Promise<void>;
 }
@@ -55,7 +54,6 @@ export function useChatMessages(): UseChatMessagesResult {
   const [hasMore, setHasMore] = useState(true);
   const [activeAuthor, setActiveAuthor] = useState(DEFAULT_AUTHOR);
   const [scrollToEndSignal, setScrollToEndSignal] = useState(0);
-  const [loadMoreSignal, setLoadMoreSignal] = useState(0);
   const messagesRef = useRef<Message[]>([]);
   const didInitialScrollRef = useRef(false);
   messagesRef.current = messages;
@@ -110,7 +108,6 @@ export function useChatMessages(): UseChatMessagesResult {
       } else {
         setMessages((previous) => mergeMessagesWithServer(data, previous));
         setHasMore(data.length === PAGE_SIZE);
-        setLoadMoreSignal((value) => value + 1);
       }
     } catch (loadMoreError) {
       console.error("Failed to load more messages:", loadMoreError);
@@ -169,7 +166,6 @@ export function useChatMessages(): UseChatMessagesResult {
     hasMore,
     activeAuthor,
     scrollToEndSignal,
-    loadMoreSignal,
     loadMoreMessages,
     handleSendMessage,
   };

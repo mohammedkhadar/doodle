@@ -77,7 +77,7 @@ describe("useChatMessages", () => {
     expect(result.current.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 
-  it("loads older messages and raises loadMoreSignal", async () => {
+  it("loads older messages and prepends them", async () => {
     const initialBatch = Array.from({ length: 100 }, (_, index) =>
       message({
         id: `m-${index}`,
@@ -102,7 +102,6 @@ describe("useChatMessages", () => {
       before: initialBatch[0].createdAt,
     });
     expect(result.current.messages[0].id).toBe("older-1");
-    expect(result.current.loadMoreSignal).toBe(1);
   });
 
   it("sends a message, updates author, and persists localStorage", async () => {

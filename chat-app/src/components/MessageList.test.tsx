@@ -53,7 +53,6 @@ describe('MessageList', () => {
     activeAuthor: 'alice',
     onLoadMore: jest.fn(),
     scrollToEndSignal: 0,
-    loadMoreSignal: 0,
   }
 
   it('renders loading state', () => {

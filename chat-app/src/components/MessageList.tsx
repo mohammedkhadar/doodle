@@ -1,10 +1,13 @@
 "use client";
 
-import { useRef, useMemo, useEffect, useLayoutEffect } from "react";
+import { useRef, useMemo, useEffect, useLayoutEffect, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Message } from "@/types/message";
 import { MessageBubble } from "@/components/MessageBubble";
 import { MessageState } from "@/components/MessageState";
+
+/** Stable baseline so prepends can decrease `firstItemIndex` while staying positive (Virtuoso). */
+const INITIAL_FIRST_ITEM_INDEX = 1_000_000;
 
 /** How far from the bottom still counts as “at bottom” (footer + input overlap). */
 const AT_BOTTOM_THRESHOLD_PX = 120;
@@ -17,10 +20,8 @@ interface MessageListProps {
   error: string | null;
   activeAuthor: string;
   onLoadMore: () => void;
-  /** Increment after a successful send to scroll the list to the latest message. */
+  /** Increment after a successful send or initial load to scroll the list to the latest message. */
   scrollToEndSignal: number;
-  /** Increment after loading older messages (should NOT auto-scroll). */
-  loadMoreSignal: number;
 }
 
 export function MessageList({
@@ -32,22 +33,36 @@ export function MessageList({
   activeAuthor,
   onLoadMore,
   scrollToEndSignal,
-  loadMoreSignal,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const isAtBottomRef = useRef(true);
-  /**
-   * After prepending older messages: skip the next `followOutput` decision, and ignore the next
-   * couple of height remeasures so we do not jump to the latest message while the list re-anchors.
-   */
-  const prependRef = useRef({ skipFollow: false, ignoreHeightPasses: 0 });
+  const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_ITEM_INDEX);
+  /** Previous `messages[0].id` — used to detect prepends and shift `firstItemIndex`. */
+  const prevHeadIdRef = useRef<string | null>(null);
+  const messagesRef = useRef(messages);
+  const firstItemIndexRef = useRef(firstItemIndex);
+  messagesRef.current = messages;
+  firstItemIndexRef.current = firstItemIndex;
 
   useEffect(() => {
-    if (loadMoreSignal > 0) {
-      prependRef.current.skipFollow = true;
-      prependRef.current.ignoreHeightPasses = 2;
+    if (messages.length === 0) {
+      prevHeadIdRef.current = null;
+      setFirstItemIndex(INITIAL_FIRST_ITEM_INDEX);
+      return;
     }
-  }, [loadMoreSignal]);
+    const headId = messages[0].id;
+    if (prevHeadIdRef.current === null) {
+      prevHeadIdRef.current = headId;
+      return;
+    }
+    if (headId !== prevHeadIdRef.current) {
+      const previousHeadIndex = messages.findIndex((m) => m.id === prevHeadIdRef.current);
+      if (previousHeadIndex > 0) {
+        setFirstItemIndex((v) => v - previousHeadIndex);
+      }
+      prevHeadIdRef.current = headId;
+    }
+  }, [messages]);
 
   const isOwnMessage = useMemo(
     () =>
@@ -61,16 +76,18 @@ export function MessageList({
     [activeAuthor]
   );
 
-  // Initial load + send: parent bumps `scrollToEndSignal`. Layout effect runs before paint.
+  // Only react to `scrollToEndSignal` (send / initial bump), not prepends — use refs for latest indices.
   useLayoutEffect(() => {
-    if (scrollToEndSignal === 0 || messages.length === 0) return;
+    if (scrollToEndSignal === 0) return;
+    const msgs = messagesRef.current;
+    if (msgs.length === 0) return;
     isAtBottomRef.current = true;
     const list = virtuosoRef.current;
     if (!list) return;
-    const lastIndex = messages.length - 1;
-    list.scrollToIndex({ index: lastIndex, align: "end", behavior: "auto" });
+    const lastGlobalIndex = firstItemIndexRef.current + msgs.length - 1;
+    list.scrollToIndex({ index: lastGlobalIndex, align: "end", behavior: "auto" });
     list.autoscrollToBottom();
-  }, [scrollToEndSignal, messages.length]);
+  }, [scrollToEndSignal]);
 
   if (isLoading && messages.length === 0) {
     return (
@@ -100,6 +117,7 @@ export function MessageList({
       data-testid="message-list"
       className="flex-1 h-full pt-6"
       data={messages}
+      firstItemIndex={firstItemIndex}
       alignToBottom
       increaseViewportBy={200}
       atBottomThreshold={AT_BOTTOM_THRESHOLD_PX}
@@ -107,20 +125,10 @@ export function MessageList({
         isAtBottomRef.current = isAtBottom;
       }}
       totalListHeightChanged={() => {
-        if (prependRef.current.ignoreHeightPasses > 0) {
-          prependRef.current.ignoreHeightPasses -= 1;
-          return;
-        }
         if (!isAtBottomRef.current) return;
         virtuosoRef.current?.autoscrollToBottom();
       }}
-      followOutput={(isAtBottom) => {
-        if (prependRef.current.skipFollow) {
-          prependRef.current.skipFollow = false;
-          return false;
-        }
-        return isAtBottom ? "auto" : false;
-      }}
+      followOutput={(isAtBottom) => (isAtBottom ? "auto" : false)}
       atTopStateChange={(isAtTop) => {
         if (isAtTop && hasMore && !isLoadingMore) {
           onLoadMore();
@@ -136,8 +144,12 @@ export function MessageList({
           ) : null,
         Footer: () => <div className="h-[calc(16px+3.5rem)]" />,
       }}
-      itemContent={(index, message) => (
-        <div className={index === messages.length - 1 ? "pb-0" : "pb-4"}>
+      itemContent={(_, message) => (
+        <div
+          className={
+            message.id === messages[messages.length - 1]?.id ? "pb-0" : "pb-4"
+          }
+        >
           <MessageBubble message={message} isOwnMessage={isOwnMessage(message.author)} />
         </div>
       )}
