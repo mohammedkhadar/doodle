@@ -1,6 +1,7 @@
 import { Message, CreateMessagePayload } from "@/types/message";
 
 const API_BASE_PATH = "/api/messages";
+const JSON_CONTENT_TYPE = "application/json";
 
 interface FetchMessagesOptions {
   limit?: number;
@@ -8,8 +9,10 @@ interface FetchMessagesOptions {
   before?: string;
 }
 
+type JsonObject = Record<string, unknown>;
+
 /** Normalize API payloads: prefer `_id`, fall back to `id` (do not overwrite a valid `id` with undefined). */
-function normalizeMessage(raw: Record<string, unknown>, index: number): Message {
+function normalizeMessage(raw: JsonObject, index: number): Message {
   const rawId = raw._id ?? raw.id;
   const id =
     rawId != null && String(rawId) !== ""
@@ -24,53 +27,73 @@ function normalizeMessage(raw: Record<string, unknown>, index: number): Message 
   };
 }
 
+function asObject(value: unknown): JsonObject | null {
+  return value && typeof value === "object" ? (value as JsonObject) : null;
+}
+
+function toMessageRecord(value: unknown): JsonObject {
+  return asObject(value) ?? {};
+}
+
 function unwrapMessageList(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
-  if (payload && typeof payload === "object") {
-    const o = payload as Record<string, unknown>;
+  const o = asObject(payload);
+  if (o) {
     if (Array.isArray(o.messages)) return o.messages;
     if (Array.isArray(o.data)) return o.data;
   }
   return [];
 }
 
-async function fetchMessages(options: FetchMessagesOptions = {}): Promise<Message[]> {
+async function requestJson<T>(
+  url: string,
+  init: RequestInit,
+  errorPrefix: string
+): Promise<T> {
+  const response = await fetch(url, init);
+
+  if (!response.ok) {
+    const statusDetail = response.statusText || `HTTP ${response.status}`;
+    throw new Error(`${errorPrefix}: ${statusDetail}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+function buildMessagesUrl(options: FetchMessagesOptions): string {
   const params = new URLSearchParams();
 
   if (options.limit) params.append("limit", options.limit.toString());
   if (options.after) params.append("after", options.after);
   if (options.before) params.append("before", options.before);
 
-  const url = `${API_BASE_PATH}${params.toString() ? `?${params}` : ""}`;
+  return `${API_BASE_PATH}${params.toString() ? `?${params}` : ""}`;
+}
 
-  const response = await fetch(url, {
-    method: "GET",
-  });
+async function fetchMessages(options: FetchMessagesOptions = {}): Promise<Message[]> {
+  const payload = await requestJson<unknown>(
+    buildMessagesUrl(options),
+    { method: "GET" },
+    "Failed to fetch messages"
+  );
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch messages: ${response.statusText}`);
-  }
-
-  const payload = await response.json();
   const list = unwrapMessageList(payload);
-  return list.map((item, index) => normalizeMessage(item as Record<string, unknown>, index));
+  return list.map((item, index) => normalizeMessage(toMessageRecord(item), index));
 }
 
 async function createMessage(payload: CreateMessagePayload): Promise<Message> {
-  const response = await fetch(API_BASE_PATH, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const data = await requestJson<unknown>(
+    API_BASE_PATH,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": JSON_CONTENT_TYPE,
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create message: ${response.statusText}`);
-  }
-
-  const data = (await response.json()) as Record<string, unknown>;
-  return normalizeMessage(data, 0);
+    "Failed to create message"
+  );
+  return normalizeMessage(toMessageRecord(data), 0);
 }
 
 export { fetchMessages, createMessage };
