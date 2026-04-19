@@ -1,6 +1,7 @@
 import {
   appendSentMessage,
   feedFromInitialBatch,
+  getLoadMoreBeforeCursor,
   mergePollBatch,
   prependOlderMessages,
   sortMessagesByDate,
@@ -68,6 +69,29 @@ describe("messagesFeed", () => {
       const empty = prependOlderMessages(old, [], 100);
       expect(empty.hasMoreOlder).toBe(false);
       expect(empty.messages).toHaveLength(1);
+    });
+  });
+
+  describe("getLoadMoreBeforeCursor", () => {
+    it("returns oldest createdAt when more older pages may exist", () => {
+      const feed = {
+        messages: [
+          msg({ id: "old", createdAt: "2026-04-18T09:00:00.000Z" }),
+          msg({ id: "new", createdAt: "2026-04-18T10:00:00.000Z" }),
+        ],
+        hasMoreOlder: true,
+      };
+      expect(getLoadMoreBeforeCursor(feed)).toBe("2026-04-18T09:00:00.000Z");
+    });
+
+    it("returns null when no older pages or empty", () => {
+      expect(getLoadMoreBeforeCursor(undefined)).toBeNull();
+      expect(
+        getLoadMoreBeforeCursor({
+          messages: [msg({ id: "only", createdAt: "2026-04-18T10:00:00.000Z" })],
+          hasMoreOlder: false,
+        })
+      ).toBeNull();
     });
   });
 

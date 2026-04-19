@@ -4,22 +4,20 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreateMessagePayload, Message } from "@/types/message";
 import { createMessage, fetchMessages } from "@/lib/api";
+import { toErrorMessage } from "@/lib/errorMessage";
 import {
   MESSAGES_FEED_QUERY_KEY,
   MESSAGE_PAGE_SIZE,
   type MessagesFeed,
   appendSentMessage,
   fetchMessagesFeedSnapshot,
+  getLoadMoreBeforeCursor,
   prependOlderMessages,
 } from "@/lib/messagesFeed";
 
 const POLLING_INTERVAL = 5000;
 const DEFAULT_AUTHOR = "You";
 const AUTHOR_STORAGE_KEY = "chat-author";
-
-function toErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
 
 interface UseChatMessagesResult {
   messages: Message[];
@@ -82,12 +80,12 @@ export function useChatMessages(): UseChatMessagesResult {
 
   const loadMoreMessages = useCallback(async () => {
     if (loadMoreMutation.isPending) return;
-    const feed = queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY);
-    if (!feed?.hasMoreOlder) return;
-    const oldest = feed.messages[0];
-    if (!oldest) return;
+    const before = getLoadMoreBeforeCursor(
+      queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY)
+    );
+    if (!before) return;
     try {
-      await loadMoreMutation.mutateAsync(oldest.createdAt);
+      await loadMoreMutation.mutateAsync(before);
     } catch {
       // onError already logged
     }
@@ -96,18 +94,14 @@ export function useChatMessages(): UseChatMessagesResult {
   const feed = messagesQuery.data;
   const messages = feed?.messages ?? [];
   const hasMore = feed?.hasMoreOlder ?? true;
-
   const isLoading = messagesQuery.isPending;
 
-  const loadError =
-    messagesQuery.isError && messagesQuery.error
-      ? toErrorMessage(messagesQuery.error, "Failed to load messages")
-      : null;
-  const sendError =
+  const error =
     sendMutation.isError && sendMutation.error
       ? toErrorMessage(sendMutation.error, "Failed to send message")
-      : null;
-  const error = sendError ?? loadError;
+      : messagesQuery.isError && messagesQuery.error
+        ? toErrorMessage(messagesQuery.error, "Failed to load messages")
+        : null;
 
   useEffect(() => {
     if (isLoading || messages.length === 0 || didInitialScrollRef.current) return;
@@ -116,16 +110,13 @@ export function useChatMessages(): UseChatMessagesResult {
     setScrollToEndSignal((value) => value + 1);
   }, [isLoading, messages.length]);
 
-  const handleSendMessage = useCallback(
-    async (messageText: string, author: string) => {
-      try {
-        await sendMutation.mutateAsync({ message: messageText, author });
-      } catch {
-        // sendMutation.error drives `error` via derived state
-      }
-    },
-    [sendMutation]
-  );
+  const handleSendMessage = useCallback(async (messageText: string, author: string) => {
+    try {
+      await sendMutation.mutateAsync({ message: messageText, author });
+    } catch {
+      // sendMutation.error drives `error` via derived state
+    }
+  }, [sendMutation]);
 
   return {
     messages,

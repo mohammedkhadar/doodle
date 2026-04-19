@@ -78,6 +78,12 @@ export function appendSentMessage(old: MessagesFeed | undefined, newMessage: Mes
   };
 }
 
+/** `before` cursor for the next older page, or `null` if load-more should not run. */
+export function getLoadMoreBeforeCursor(feed: MessagesFeed | undefined): string | null {
+  if (!feed?.hasMoreOlder || feed.messages.length === 0) return null;
+  return feed.messages[0]?.createdAt ?? null;
+}
+
 /**
  * Sync query: initial page or poll for newer messages after `newest` timestamp.
  * Reads/writes via `queryClient` only through `getQueryData` for merge inputs.
