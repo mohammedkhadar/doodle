@@ -1,14 +1,13 @@
 "use client";
 
-import { useRef, useMemo, useEffect, useLayoutEffect, useCallback } from "react";
+import { useRef, useMemo, useEffect, useLayoutEffect } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Message } from "@/types/message";
 import { MessageBubble } from "@/components/MessageBubble";
 import { MessageState } from "@/components/MessageState";
 
-const BOTTOM_THRESHOLD_PX = 120;
-const PREPEND_HEIGHT_PASSES_TO_IGNORE = 2;
-const VIEWPORT_OVERSCAN_PX = 200;
+/** How far from the bottom still counts as “at bottom” (footer + input overlap). */
+const AT_BOTTOM_THRESHOLD_PX = 120;
 
 interface MessageListProps {
   messages: Message[];
@@ -37,14 +36,16 @@ export function MessageList({
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const isAtBottomRef = useRef(true);
-  const skipNextFollowRef = useRef(false);
-  const ignoredHeightPassesRef = useRef(0);
+  /**
+   * After prepending older messages: skip the next `followOutput` decision, and ignore the next
+   * couple of height remeasures so we do not jump to the latest message while the list re-anchors.
+   */
+  const prependRef = useRef({ skipFollow: false, ignoreHeightPasses: 0 });
 
   useEffect(() => {
     if (loadMoreSignal > 0) {
-      // Prepends should preserve viewport position, not yank to bottom.
-      skipNextFollowRef.current = true;
-      ignoredHeightPassesRef.current = PREPEND_HEIGHT_PASSES_TO_IGNORE;
+      prependRef.current.skipFollow = true;
+      prependRef.current.ignoreHeightPasses = 2;
     }
   }, [loadMoreSignal]);
 
@@ -60,38 +61,16 @@ export function MessageList({
     [activeAuthor]
   );
 
-  const scrollToLastMessage = useCallback(() => {
-    if (messages.length === 0) return;
+  // Initial load + send: parent bumps `scrollToEndSignal`. Layout effect runs before paint.
+  useLayoutEffect(() => {
+    if (scrollToEndSignal === 0 || messages.length === 0) return;
+    isAtBottomRef.current = true;
     const list = virtuosoRef.current;
     if (!list) return;
     const lastIndex = messages.length - 1;
     list.scrollToIndex({ index: lastIndex, align: "end", behavior: "auto" });
     list.autoscrollToBottom();
-  }, [messages.length]);
-
-  const handleListHeightChange = () => {
-    if (ignoredHeightPassesRef.current > 0) {
-      ignoredHeightPassesRef.current -= 1;
-      return;
-    }
-    if (!isAtBottomRef.current) return;
-    virtuosoRef.current?.autoscrollToBottom();
-  };
-
-  const handleFollowOutput = (isAtBottom: boolean) => {
-    if (skipNextFollowRef.current) {
-      skipNextFollowRef.current = false;
-      return false;
-    }
-    return isAtBottom ? "auto" : false;
-  };
-
-  useLayoutEffect(() => {
-    if (scrollToEndSignal === 0 || messages.length === 0) return;
-    isAtBottomRef.current = true;
-    scrollToLastMessage();
-    queueMicrotask(scrollToLastMessage);
-  }, [scrollToEndSignal, messages.length, scrollToLastMessage]);
+  }, [scrollToEndSignal, messages.length]);
 
   if (isLoading && messages.length === 0) {
     return (
@@ -122,13 +101,26 @@ export function MessageList({
       className="flex-1 h-full pt-6"
       data={messages}
       alignToBottom
-      increaseViewportBy={VIEWPORT_OVERSCAN_PX}
-      atBottomThreshold={BOTTOM_THRESHOLD_PX}
+      increaseViewportBy={200}
+      atBottomThreshold={AT_BOTTOM_THRESHOLD_PX}
       atBottomStateChange={(isAtBottom) => {
         isAtBottomRef.current = isAtBottom;
       }}
-      totalListHeightChanged={handleListHeightChange}
-      followOutput={handleFollowOutput}
+      totalListHeightChanged={() => {
+        if (prependRef.current.ignoreHeightPasses > 0) {
+          prependRef.current.ignoreHeightPasses -= 1;
+          return;
+        }
+        if (!isAtBottomRef.current) return;
+        virtuosoRef.current?.autoscrollToBottom();
+      }}
+      followOutput={(isAtBottom) => {
+        if (prependRef.current.skipFollow) {
+          prependRef.current.skipFollow = false;
+          return false;
+        }
+        return isAtBottom ? "auto" : false;
+      }}
       atTopStateChange={(isAtTop) => {
         if (isAtTop && hasMore && !isLoadingMore) {
           onLoadMore();
