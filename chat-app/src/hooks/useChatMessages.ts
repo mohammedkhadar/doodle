@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Message } from "@/types/message";
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { CreateMessagePayload, Message } from "@/types/message";
 import { fetchMessages, createMessage } from "@/lib/api";
 
 const POLLING_INTERVAL = 5000;
 const DEFAULT_AUTHOR = "You";
 const PAGE_SIZE = 100;
 const AUTHOR_STORAGE_KEY = "chat-author";
+
+const MESSAGES_SYNC_QUERY_KEY = ["messages", "sync"] as const;
 
 function sortMessagesByDate(messages: Message[]): Message[] {
   return [...messages].sort(
@@ -47,15 +50,14 @@ interface UseChatMessagesResult {
 
 export function useChatMessages(): UseChatMessagesResult {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [activeAuthor, setActiveAuthor] = useState(DEFAULT_AUTHOR);
   const [scrollToEndSignal, setScrollToEndSignal] = useState(0);
   const messagesRef = useRef<Message[]>([]);
   const didInitialScrollRef = useRef(false);
+  // Mirror latest messages for the sync queryFn; assignment each render is intentional.
+  // eslint-disable-next-line react-hooks/refs -- ref mirrors state for async query closure
   messagesRef.current = messages;
 
   useEffect(() => {
@@ -65,71 +67,84 @@ export function useChatMessages(): UseChatMessagesResult {
     }
   }, []);
 
-  /**
-   * Initial load (empty state): `before: now` asks for the latest window of messages.
-   * Poll (we already have messages): `after: newest` fetches only newer rows so we do not
-   * replace the view with an "oldest-first" page that omits the latest message.
-   */
-  const loadMessages = useCallback(async () => {
-    try {
+  const messagesQuery = useQuery({
+    queryKey: MESSAGES_SYNC_QUERY_KEY,
+    queryFn: async () => {
       const previous = messagesRef.current;
       const sorted = sortMessagesByDate(previous);
       const newest = sorted.length > 0 ? sorted[sorted.length - 1].createdAt : undefined;
 
-      const data = await fetchMessages(
+      const batch = await fetchMessages(
         newest
           ? { limit: PAGE_SIZE, after: newest }
           : { limit: PAGE_SIZE, before: new Date().toISOString() }
       );
 
-      setMessages((state) => mergeMessagesWithServer(data, state));
-      if (!newest) {
-        setHasMore(data.length === PAGE_SIZE);
-      }
-      setError((current) => (current ? null : current));
-    } catch (loadError) {
-      setError(toErrorMessage(loadError, "Failed to load messages"));
+      return { batch, hadNewest: Boolean(newest) };
+    },
+    staleTime: 0,
+    refetchInterval: POLLING_INTERVAL,
+  });
+
+  useLayoutEffect(() => {
+    if (messagesQuery.data === undefined) return;
+    const { batch, hadNewest } = messagesQuery.data;
+    setMessages((state) => mergeMessagesWithServer(batch, state));
+    if (!hadNewest) {
+      setHasMore(batch.length === PAGE_SIZE);
     }
-  }, []);
+    setError(null);
+  }, [messagesQuery.data]);
 
-  const loadMoreMessages = useCallback(async () => {
-    if (isLoadingMore || !hasMore || messages.length === 0) return;
+  useEffect(() => {
+    if (!messagesQuery.isError || !messagesQuery.error) return;
+    setError(toErrorMessage(messagesQuery.error, "Failed to load messages"));
+  }, [messagesQuery.isError, messagesQuery.error]);
 
-    setIsLoadingMore(true);
-    try {
-      const oldestMessage = messages[0];
-      const data = await fetchMessages({
-        limit: PAGE_SIZE,
-        before: oldestMessage.createdAt,
-      });
-
+  const loadMoreMutation = useMutation({
+    mutationFn: (before: string) =>
+      fetchMessages({ limit: PAGE_SIZE, before }),
+    onSuccess: (data) => {
       if (data.length === 0) {
         setHasMore(false);
       } else {
         setMessages((previous) => mergeMessagesWithServer(data, previous));
         setHasMore(data.length === PAGE_SIZE);
       }
-    } catch (loadMoreError) {
+    },
+    onError: (loadMoreError) => {
       console.error("Failed to load more messages:", loadMoreError);
-    } finally {
-      setIsLoadingMore(false);
+    },
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: (payload: CreateMessagePayload) => createMessage(payload),
+    onMutate: () => {
+      setError(null);
+    },
+    onSuccess: (newMessage, variables) => {
+      setActiveAuthor(variables.author);
+      window.localStorage.setItem(AUTHOR_STORAGE_KEY, variables.author);
+      setMessages((previous) => sortMessagesByDate([...previous, newMessage]));
+      setScrollToEndSignal((value) => value + 1);
+    },
+    onError: (sendError) => {
+      setError(toErrorMessage(sendError, "Failed to send message"));
+    },
+  });
+
+  const loadMoreMessages = useCallback(async () => {
+    if (loadMoreMutation.isPending || !hasMore) return;
+    const oldest = messagesRef.current[0];
+    if (!oldest) return;
+    try {
+      await loadMoreMutation.mutateAsync(oldest.createdAt);
+    } catch {
+      // onError already logged
     }
-  }, [isLoadingMore, hasMore, messages]);
+  }, [hasMore, loadMoreMutation]);
 
-  useEffect(() => {
-    const loadInitialMessages = async () => {
-      setIsLoading(true);
-      await loadMessages();
-      setIsLoading(false);
-    };
-
-    void loadInitialMessages();
-    const intervalId = setInterval(() => {
-      void loadMessages();
-    }, POLLING_INTERVAL);
-
-    return () => clearInterval(intervalId);
-  }, [loadMessages]);
+  const isLoading = messagesQuery.isPending;
 
   useEffect(() => {
     if (isLoading || messages.length === 0 || didInitialScrollRef.current) return;
@@ -137,32 +152,23 @@ export function useChatMessages(): UseChatMessagesResult {
     setScrollToEndSignal((value) => value + 1);
   }, [isLoading, messages.length]);
 
-  const handleSendMessage = useCallback(async (messageText: string, author: string) => {
-    setIsSending(true);
-    setError(null);
-
-    try {
-      const newMessage = await createMessage({
-        message: messageText,
-        author,
-      });
-      setActiveAuthor(author);
-      window.localStorage.setItem(AUTHOR_STORAGE_KEY, author);
-      setMessages((previous) => sortMessagesByDate([...previous, newMessage]));
-      setScrollToEndSignal((value) => value + 1);
-    } catch (sendError) {
-      setError(toErrorMessage(sendError, "Failed to send message"));
-    } finally {
-      setIsSending(false);
-    }
-  }, []);
+  const handleSendMessage = useCallback(
+    async (messageText: string, author: string) => {
+      try {
+        await sendMutation.mutateAsync({ message: messageText, author });
+      } catch {
+        // surfaced via setError in onError
+      }
+    },
+    [sendMutation]
+  );
 
   return {
     messages,
     isLoading,
-    isLoadingMore,
+    isLoadingMore: loadMoreMutation.isPending,
     error,
-    isSending,
+    isSending: sendMutation.isPending,
     hasMore,
     activeAuthor,
     scrollToEndSignal,

@@ -1,7 +1,31 @@
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useChatMessages } from "@/hooks/useChatMessages";
 import { fetchMessages, createMessage } from "@/lib/api";
 import { Message } from "@/types/message";
+
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+      },
+      mutations: {
+        retry: false,
+      },
+    },
+  });
+}
+
+function createHookWrapper() {
+  const queryClient = createTestQueryClient();
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children);
+  }
+  return Wrapper;
+}
 
 jest.mock("@/lib/api", () => ({
   fetchMessages: jest.fn(),
@@ -39,7 +63,7 @@ describe("useChatMessages", () => {
       message({ id: "m1", createdAt: "2026-04-18T10:00:00.000Z" }),
     ]);
 
-    const { result } = renderHook(() => useChatMessages());
+    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -59,7 +83,7 @@ describe("useChatMessages", () => {
       .mockResolvedValueOnce([message({ id: "m1", createdAt: "2026-04-18T10:00:00.000Z" })])
       .mockResolvedValueOnce([message({ id: "m2", createdAt: "2026-04-18T10:01:00.000Z" })]);
 
-    const { result } = renderHook(() => useChatMessages());
+    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -89,7 +113,7 @@ describe("useChatMessages", () => {
       .mockResolvedValueOnce(initialBatch)
       .mockResolvedValueOnce([message({ id: "older-1", createdAt: "2026-04-18T09:59:00.000Z" })]);
 
-    const { result } = renderHook(() => useChatMessages());
+    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -115,7 +139,7 @@ describe("useChatMessages", () => {
       })
     );
 
-    const { result } = renderHook(() => useChatMessages());
+    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     const previousScrollSignal = result.current.scrollToEndSignal;
@@ -135,7 +159,7 @@ describe("useChatMessages", () => {
   it("sets an error when initial load fails", async () => {
     mockedFetchMessages.mockRejectedValue(new Error("Network broken"));
 
-    const { result } = renderHook(() => useChatMessages());
+    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
