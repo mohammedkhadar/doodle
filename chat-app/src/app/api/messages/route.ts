@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const UPSTREAM_PATH = "/api/v1/messages";
 const JSON_CONTENT_TYPE = "application/json";
-const MISSING_TOKEN_ERROR = "Server is missing required auth token. Set AUTH_TOKEN (preferred).";
+const MISSING_TOKEN_ERROR = "Server is missing required auth token. Set AUTH_TOKEN.";
 const UPSTREAM_UNREACHABLE_ERROR = "Unable to reach upstream messages service.";
 
 function getApiBaseUrl(): string {
@@ -14,7 +14,7 @@ function getApiBaseUrl(): string {
 }
 
 function getAuthToken(): string | null {
-  return process.env.AUTH_TOKEN?.trim() || process.env.NEXT_PUBLIC_AUTH_TOKEN?.trim() || null;
+  return process.env.AUTH_TOKEN?.trim() || null;
 }
 
 function buildUpstreamUrl(request: NextRequest, apiBaseUrl: string): string {
