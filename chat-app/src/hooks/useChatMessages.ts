@@ -3,26 +3,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreateMessagePayload, Message } from "@/types/message";
-import { fetchMessages, createMessage } from "@/lib/api";
+import { createMessage, fetchMessages } from "@/lib/api";
+import {
+  MESSAGES_FEED_QUERY_KEY,
+  MESSAGE_PAGE_SIZE,
+  type MessagesFeed,
+  appendSentMessage,
+  fetchMessagesFeedSnapshot,
+  prependOlderMessages,
+} from "@/lib/messagesFeed";
 
 const POLLING_INTERVAL = 5000;
 const DEFAULT_AUTHOR = "You";
-const PAGE_SIZE = 100;
 const AUTHOR_STORAGE_KEY = "chat-author";
-
-const MESSAGES_FEED_QUERY_KEY = ["messages", "feed"] as const;
-
-interface MessagesFeed {
-  messages: Message[];
-  hasMoreOlder: boolean;
-}
-
-function sortMessagesByDate(messages: Message[]): Message[] {
-  return [...messages].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
-  );
-}
 
 function toErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -57,58 +50,18 @@ export function useChatMessages(): UseChatMessagesResult {
 
   const messagesQuery = useQuery({
     queryKey: MESSAGES_FEED_QUERY_KEY,
-    queryFn: async (): Promise<MessagesFeed> => {
-      const prevFeed = queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY);
-      const existing = prevFeed?.messages ?? [];
-      const sorted = sortMessagesByDate(existing);
-      const newest = sorted.length > 0 ? sorted[sorted.length - 1].createdAt : undefined;
-
-      if (!newest) {
-        const batch = await fetchMessages({
-          limit: PAGE_SIZE,
-          before: new Date().toISOString(),
-        });
-        return {
-          messages: sortMessagesByDate(batch),
-          hasMoreOlder: batch.length === PAGE_SIZE,
-        };
-      }
-
-      const batch = await fetchMessages({
-        limit: PAGE_SIZE,
-        after: newest,
-      });
-      // Re-read cache after the network gap so mutations (prepend / send) are not
-      // overwritten by a stale snapshot taken before `await`.
-      const latestFeed = queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY);
-      const baseMessages = latestFeed?.messages ?? existing;
-      const seen = new Set(baseMessages.map((m) => m.id));
-      const added = batch.filter((m) => !seen.has(m.id));
-      return {
-        messages: sortMessagesByDate([...baseMessages, ...added]),
-        hasMoreOlder: latestFeed?.hasMoreOlder ?? prevFeed?.hasMoreOlder ?? true,
-      };
-    },
+    queryFn: () => fetchMessagesFeedSnapshot(queryClient, MESSAGE_PAGE_SIZE),
     staleTime: 0,
     refetchInterval: POLLING_INTERVAL,
   });
 
   const loadMoreMutation = useMutation({
     mutationFn: (before: string) =>
-      fetchMessages({ limit: PAGE_SIZE, before }),
+      fetchMessages({ limit: MESSAGE_PAGE_SIZE, before }),
     onSuccess: (olderBatch) => {
-      queryClient.setQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY, (old) => {
-        const baseMessages = old?.messages ?? [];
-        if (olderBatch.length === 0) {
-          return { messages: baseMessages, hasMoreOlder: false };
-        }
-        const seen = new Set(baseMessages.map((m) => m.id));
-        const olderOnly = olderBatch.filter((m) => !seen.has(m.id));
-        return {
-          messages: sortMessagesByDate([...olderOnly, ...baseMessages]),
-          hasMoreOlder: olderBatch.length === PAGE_SIZE,
-        };
-      });
+      queryClient.setQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY, (old) =>
+        prependOlderMessages(old, olderBatch, MESSAGE_PAGE_SIZE)
+      );
     },
     onError: (loadMoreError) => {
       console.error("Failed to load more messages:", loadMoreError);
@@ -120,13 +73,9 @@ export function useChatMessages(): UseChatMessagesResult {
     onSuccess: (newMessage, variables) => {
       setActiveAuthor(variables.author);
       window.localStorage.setItem(AUTHOR_STORAGE_KEY, variables.author);
-      queryClient.setQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY, (old) => {
-        const base = old?.messages ?? [];
-        return {
-          messages: sortMessagesByDate([...base, newMessage]),
-          hasMoreOlder: old?.hasMoreOlder ?? true,
-        };
-      });
+      queryClient.setQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY, (old) =>
+        appendSentMessage(old, newMessage)
+      );
       setScrollToEndSignal((value) => value + 1);
     },
   });
@@ -172,7 +121,7 @@ export function useChatMessages(): UseChatMessagesResult {
       try {
         await sendMutation.mutateAsync({ message: messageText, author });
       } catch {
-        // surfaced via setError in onError
+        // sendMutation.error drives `error` via derived state
       }
     },
     [sendMutation]
