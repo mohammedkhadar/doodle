@@ -1,14 +1,31 @@
 import { render, screen } from '@testing-library/react'
+import { type ReactNode } from 'react'
 import { MessageList } from '@/components/MessageList'
 import { Message } from '@/types/message'
 
-jest.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: jest.fn(() => ({
-    getTotalSize: () => 1000,
-    getVirtualItems: () => [],
-    scrollToIndex: jest.fn(),
-    measureElement: jest.fn(),
-  })),
+interface VirtuosoMockProps {
+  data?: Message[]
+  itemContent: (index: number, item: Message) => ReactNode
+  components?: {
+    Header?: () => ReactNode
+  }
+  'data-testid'?: string
+}
+
+jest.mock('react-virtuoso', () => ({
+  Virtuoso: ({
+    data = [],
+    itemContent,
+    components,
+    'data-testid': testId,
+  }: VirtuosoMockProps) => (
+    <div data-testid={testId ?? 'virtuoso'}>
+      {components?.Header ? <components.Header /> : null}
+      {data.map((item: Message, index: number) => (
+        <div key={item.id}>{itemContent(index, item)}</div>
+      ))}
+    </div>
+  ),
 }))
 
 describe('MessageList', () => {
@@ -77,12 +94,11 @@ describe('MessageList', () => {
   })
 
   it('renders scroll container when messages exist', () => {
-    const { container } = render(
+    render(
       <MessageList {...defaultProps} />
     )
 
-    const scrollContainer = container.querySelector('[class*="overflow-y-auto"]')
-    expect(scrollContainer).toBeInTheDocument()
+    expect(screen.getByTestId('message-list')).toBeInTheDocument()
   })
 
   it('shows loading spinner when loading more', () => {
@@ -106,7 +122,6 @@ describe('MessageList', () => {
       />
     )
 
-    const scrollContainer = document.querySelector('[class*="overflow-y-auto"]')
-    expect(scrollContainer).toBeInTheDocument()
+    expect(screen.getByTestId('message-list')).toBeInTheDocument()
   })
 })

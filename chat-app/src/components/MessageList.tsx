@@ -1,12 +1,10 @@
 "use client";
 
-import { useRef, useMemo } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useRef, useMemo, useEffect, useCallback } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Message } from "@/types/message";
-import { GAP } from "@/lib/constants";
 import { MessageBubble } from "@/components/MessageBubble";
 import { MessageState } from "@/components/MessageState";
-import { useScrollCoordinator } from "@/hooks/useScrollCoordinator";
 
 interface MessageListProps {
   messages: Message[];
@@ -33,32 +31,30 @@ export function MessageList({
   scrollToEndSignal,
   loadMoreSignal,
 }: MessageListProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const isAtBottomRef = useRef(true);
+  const previousMessageCountRef = useRef(messages.length);
+  const skipAutoScrollRef = useRef(false);
 
-  // TanStack Virtual is intentionally used here for large lists, and the
-  // React Compiler warning is expected with this hook's API surface.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtualizer = useVirtualizer({
-    count: messages.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 90,
-    overscan: 10,
-    getItemKey: (index) => messages[index]?.id ?? index,
-    measureElement: (el) => el.getBoundingClientRect().height + GAP,
-  });
-
-  const { handleScroll } = useScrollCoordinator({
-    virtualizer,
-    scrollRef,
-    innerRef,
-    messageCount: messages.length,
-    scrollToEndSignal,
-    loadMoreSignal,
-    hasMore,
-    isLoadingMore,
-    onLoadMore,
-  });
+  const scrollToLatest = useCallback(() => {
+    if (messages.length === 0) return;
+    const latestIndex = messages.length - 1;
+    virtuosoRef.current?.scrollToIndex({
+      index: latestIndex,
+      align: "end",
+      behavior: "auto",
+    });
+    // Re-run after layout settles so multiline bubbles are fully visible.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: latestIndex,
+          align: "end",
+          behavior: "auto",
+        });
+      });
+    });
+  }, [messages.length]);
 
   const isOwnMessage = useMemo(
     () =>
@@ -71,6 +67,37 @@ export function MessageList({
         : () => false,
     [activeAuthor]
   );
+
+  useEffect(() => {
+    if (loadMoreSignal > 0) {
+      // Loading older messages prepends entries; keep viewport anchored.
+      skipAutoScrollRef.current = true;
+    }
+  }, [loadMoreSignal]);
+
+  useEffect(() => {
+    const previousCount = previousMessageCountRef.current;
+    previousMessageCountRef.current = messages.length;
+
+    if (messages.length === 0 || previousCount === 0 || messages.length <= previousCount) {
+      return;
+    }
+
+    if (skipAutoScrollRef.current) {
+      skipAutoScrollRef.current = false;
+      return;
+    }
+
+    if (isAtBottomRef.current) {
+      scrollToLatest();
+    }
+  }, [messages.length, scrollToLatest]);
+
+  useEffect(() => {
+    if (scrollToEndSignal === 0 || messages.length === 0) return;
+    isAtBottomRef.current = true;
+    scrollToLatest();
+  }, [scrollToEndSignal, messages.length, scrollToLatest]);
 
   if (isLoading && messages.length === 0) {
     return (
@@ -95,39 +122,35 @@ export function MessageList({
   }
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      className="flex-1 h-full overflow-y-auto pt-6 pb-[calc(16px+3.5rem)]"
-    >
-      {isLoadingMore && (
-        <div className="flex justify-center py-4">
-          <div className="h-6 w-6 rounded-full border-2 border-[#3498db] border-t-transparent animate-spin" />
+    <Virtuoso
+      ref={virtuosoRef}
+      data-testid="message-list"
+      className="flex-1 h-full pt-6"
+      data={messages}
+      initialTopMostItemIndex={Math.max(messages.length - 1, 0)}
+      atBottomStateChange={(isAtBottom) => {
+        isAtBottomRef.current = isAtBottom;
+      }}
+      atTopStateChange={(isAtTop) => {
+        if (isAtTop && hasMore && !isLoadingMore) {
+          onLoadMore();
+        }
+      }}
+      computeItemKey={(_, message) => message.id}
+      components={{
+        Header: () =>
+          isLoadingMore ? (
+            <div className="flex justify-center py-4">
+              <div className="h-6 w-6 rounded-full border-2 border-[#3498db] border-t-transparent animate-spin" />
+            </div>
+          ) : null,
+        Footer: () => <div className="h-[calc(16px+3.5rem)]" />,
+      }}
+      itemContent={(index, message) => (
+        <div className={index === messages.length - 1 ? "pb-0" : "pb-4"}>
+          <MessageBubble message={message} isOwnMessage={isOwnMessage(message.author)} />
         </div>
       )}
-      <div
-        ref={innerRef}
-        className="relative w-full"
-        style={{ height: `${virtualizer.getTotalSize()}px` }}
-      >
-        {virtualizer.getVirtualItems().map((virtualItem) => {
-          const message = messages[virtualItem.index];
-          return (
-            <div
-              key={message.id}
-              data-index={virtualItem.index}
-              ref={virtualizer.measureElement}
-              className="absolute top-0 left-0 w-full"
-              style={{ transform: `translateY(${virtualItem.start}px)` }}
-            >
-              <MessageBubble
-                message={message}
-                isOwnMessage={isOwnMessage(message.author)}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    />
   );
 }
