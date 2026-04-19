@@ -35,18 +35,22 @@ export function MessageList({
   scrollToEndSignal,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const isAtBottomRef = useRef(true);
   const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_ITEM_INDEX);
   /** Previous `messages[0].id` — used to detect prepends and shift `firstItemIndex`. */
   const prevHeadIdRef = useRef<string | null>(null);
   const messagesRef = useRef(messages);
   const firstItemIndexRef = useRef(firstItemIndex);
-  messagesRef.current = messages;
-  firstItemIndexRef.current = firstItemIndex;
+
+  useLayoutEffect(() => {
+    messagesRef.current = messages;
+    firstItemIndexRef.current = firstItemIndex;
+  }, [messages, firstItemIndex]);
 
   useEffect(() => {
     if (messages.length === 0) {
       prevHeadIdRef.current = null;
+      // Reset baseline when the thread clears so the next non-empty mount matches Virtuoso indices.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync when `messages` becomes empty
       setFirstItemIndex(INITIAL_FIRST_ITEM_INDEX);
       return;
     }
@@ -81,7 +85,6 @@ export function MessageList({
     if (scrollToEndSignal === 0) return;
     const msgs = messagesRef.current;
     if (msgs.length === 0) return;
-    isAtBottomRef.current = true;
     const list = virtuosoRef.current;
     if (!list) return;
     const lastGlobalIndex = firstItemIndexRef.current + msgs.length - 1;
@@ -119,15 +122,7 @@ export function MessageList({
       data={messages}
       firstItemIndex={firstItemIndex}
       alignToBottom
-      increaseViewportBy={200}
       atBottomThreshold={AT_BOTTOM_THRESHOLD_PX}
-      atBottomStateChange={(isAtBottom) => {
-        isAtBottomRef.current = isAtBottom;
-      }}
-      totalListHeightChanged={() => {
-        if (!isAtBottomRef.current) return;
-        virtuosoRef.current?.autoscrollToBottom();
-      }}
       followOutput={(isAtBottom) => (isAtBottom ? "auto" : false)}
       atTopStateChange={(isAtTop) => {
         if (isAtTop && hasMore && !isLoadingMore) {
