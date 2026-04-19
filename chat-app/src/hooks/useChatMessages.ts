@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreateMessagePayload, Message } from "@/types/message";
 import { fetchMessages, createMessage } from "@/lib/api";
 
@@ -10,25 +10,18 @@ const DEFAULT_AUTHOR = "You";
 const PAGE_SIZE = 100;
 const AUTHOR_STORAGE_KEY = "chat-author";
 
-const MESSAGES_SYNC_QUERY_KEY = ["messages", "sync"] as const;
+const MESSAGES_FEED_QUERY_KEY = ["messages", "feed"] as const;
+
+interface MessagesFeed {
+  messages: Message[];
+  hasMoreOlder: boolean;
+}
 
 function sortMessagesByDate(messages: Message[]): Message[] {
   return [...messages].sort(
     (left, right) =>
       new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
   );
-}
-
-/** Merge server fetch with local state so polling does not drop a message not in the latest API page yet. */
-function mergeMessagesWithServer(server: Message[], previous: Message[]): Message[] {
-  const byId = new Map<string, Message>();
-  for (const message of sortMessagesByDate(server)) {
-    byId.set(message.id, message);
-  }
-  for (const message of previous) {
-    if (!byId.has(message.id)) byId.set(message.id, message);
-  }
-  return sortMessagesByDate([...byId.values()]);
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -49,68 +42,73 @@ interface UseChatMessagesResult {
 }
 
 export function useChatMessages(): UseChatMessagesResult {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
+  const queryClient = useQueryClient();
   const [activeAuthor, setActiveAuthor] = useState(DEFAULT_AUTHOR);
   const [scrollToEndSignal, setScrollToEndSignal] = useState(0);
-  const messagesRef = useRef<Message[]>([]);
   const didInitialScrollRef = useRef(false);
-  // Mirror latest messages for the sync queryFn; assignment each render is intentional.
-  // eslint-disable-next-line react-hooks/refs -- ref mirrors state for async query closure
-  messagesRef.current = messages;
 
   useEffect(() => {
     const storedAuthor = window.localStorage.getItem(AUTHOR_STORAGE_KEY)?.trim();
     if (storedAuthor) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate author after mount (avoid SSR/localStorage mismatch)
       setActiveAuthor(storedAuthor);
     }
   }, []);
 
   const messagesQuery = useQuery({
-    queryKey: MESSAGES_SYNC_QUERY_KEY,
-    queryFn: async () => {
-      const previous = messagesRef.current;
-      const sorted = sortMessagesByDate(previous);
+    queryKey: MESSAGES_FEED_QUERY_KEY,
+    queryFn: async (): Promise<MessagesFeed> => {
+      const prevFeed = queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY);
+      const existing = prevFeed?.messages ?? [];
+      const sorted = sortMessagesByDate(existing);
       const newest = sorted.length > 0 ? sorted[sorted.length - 1].createdAt : undefined;
 
-      const batch = await fetchMessages(
-        newest
-          ? { limit: PAGE_SIZE, after: newest }
-          : { limit: PAGE_SIZE, before: new Date().toISOString() }
-      );
+      if (!newest) {
+        const batch = await fetchMessages({
+          limit: PAGE_SIZE,
+          before: new Date().toISOString(),
+        });
+        return {
+          messages: sortMessagesByDate(batch),
+          hasMoreOlder: batch.length === PAGE_SIZE,
+        };
+      }
 
-      return { batch, hadNewest: Boolean(newest) };
+      const batch = await fetchMessages({
+        limit: PAGE_SIZE,
+        after: newest,
+      });
+      // Re-read cache after the network gap so mutations (prepend / send) are not
+      // overwritten by a stale snapshot taken before `await`.
+      const latestFeed = queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY);
+      const baseMessages = latestFeed?.messages ?? existing;
+      const seen = new Set(baseMessages.map((m) => m.id));
+      const added = batch.filter((m) => !seen.has(m.id));
+      return {
+        messages: sortMessagesByDate([...baseMessages, ...added]),
+        hasMoreOlder: latestFeed?.hasMoreOlder ?? prevFeed?.hasMoreOlder ?? true,
+      };
     },
     staleTime: 0,
     refetchInterval: POLLING_INTERVAL,
   });
 
-  useLayoutEffect(() => {
-    if (messagesQuery.data === undefined) return;
-    const { batch, hadNewest } = messagesQuery.data;
-    setMessages((state) => mergeMessagesWithServer(batch, state));
-    if (!hadNewest) {
-      setHasMore(batch.length === PAGE_SIZE);
-    }
-    setError(null);
-  }, [messagesQuery.data]);
-
-  useEffect(() => {
-    if (!messagesQuery.isError || !messagesQuery.error) return;
-    setError(toErrorMessage(messagesQuery.error, "Failed to load messages"));
-  }, [messagesQuery.isError, messagesQuery.error]);
-
   const loadMoreMutation = useMutation({
     mutationFn: (before: string) =>
       fetchMessages({ limit: PAGE_SIZE, before }),
-    onSuccess: (data) => {
-      if (data.length === 0) {
-        setHasMore(false);
-      } else {
-        setMessages((previous) => mergeMessagesWithServer(data, previous));
-        setHasMore(data.length === PAGE_SIZE);
-      }
+    onSuccess: (olderBatch) => {
+      queryClient.setQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY, (old) => {
+        const baseMessages = old?.messages ?? [];
+        if (olderBatch.length === 0) {
+          return { messages: baseMessages, hasMoreOlder: false };
+        }
+        const seen = new Set(baseMessages.map((m) => m.id));
+        const olderOnly = olderBatch.filter((m) => !seen.has(m.id));
+        return {
+          messages: sortMessagesByDate([...olderOnly, ...baseMessages]),
+          hasMoreOlder: olderBatch.length === PAGE_SIZE,
+        };
+      });
     },
     onError: (loadMoreError) => {
       console.error("Failed to load more messages:", loadMoreError);
@@ -119,36 +117,53 @@ export function useChatMessages(): UseChatMessagesResult {
 
   const sendMutation = useMutation({
     mutationFn: (payload: CreateMessagePayload) => createMessage(payload),
-    onMutate: () => {
-      setError(null);
-    },
     onSuccess: (newMessage, variables) => {
       setActiveAuthor(variables.author);
       window.localStorage.setItem(AUTHOR_STORAGE_KEY, variables.author);
-      setMessages((previous) => sortMessagesByDate([...previous, newMessage]));
+      queryClient.setQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY, (old) => {
+        const base = old?.messages ?? [];
+        return {
+          messages: sortMessagesByDate([...base, newMessage]),
+          hasMoreOlder: old?.hasMoreOlder ?? true,
+        };
+      });
       setScrollToEndSignal((value) => value + 1);
-    },
-    onError: (sendError) => {
-      setError(toErrorMessage(sendError, "Failed to send message"));
     },
   });
 
   const loadMoreMessages = useCallback(async () => {
-    if (loadMoreMutation.isPending || !hasMore) return;
-    const oldest = messagesRef.current[0];
+    if (loadMoreMutation.isPending) return;
+    const feed = queryClient.getQueryData<MessagesFeed>(MESSAGES_FEED_QUERY_KEY);
+    if (!feed?.hasMoreOlder) return;
+    const oldest = feed.messages[0];
     if (!oldest) return;
     try {
       await loadMoreMutation.mutateAsync(oldest.createdAt);
     } catch {
       // onError already logged
     }
-  }, [hasMore, loadMoreMutation]);
+  }, [loadMoreMutation, queryClient]);
+
+  const feed = messagesQuery.data;
+  const messages = feed?.messages ?? [];
+  const hasMore = feed?.hasMoreOlder ?? true;
 
   const isLoading = messagesQuery.isPending;
+
+  const loadError =
+    messagesQuery.isError && messagesQuery.error
+      ? toErrorMessage(messagesQuery.error, "Failed to load messages")
+      : null;
+  const sendError =
+    sendMutation.isError && sendMutation.error
+      ? toErrorMessage(sendMutation.error, "Failed to send message")
+      : null;
+  const error = sendError ?? loadError;
 
   useEffect(() => {
     if (isLoading || messages.length === 0 || didInitialScrollRef.current) return;
     didInitialScrollRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time scroll after first non-empty load
     setScrollToEndSignal((value) => value + 1);
   }, [isLoading, messages.length]);
 

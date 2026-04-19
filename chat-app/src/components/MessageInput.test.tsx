@@ -22,6 +22,21 @@ describe('MessageInput', () => {
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument()
   })
 
+  it('focuses textarea on mount', async () => {
+    render(
+      <MessageInput
+        activeAuthor="alice"
+        onSendMessage={mockOnSendMessage}
+        isSending={false}
+      />
+    )
+
+    const input = screen.getByRole('textbox')
+    await waitFor(() => {
+      expect(input).toHaveFocus()
+    })
+  })
+
   it('disables send button when message is empty', () => {
     render(
       <MessageInput
@@ -83,6 +98,26 @@ describe('MessageInput', () => {
 
     await waitFor(() => {
       expect(input.value).toBe('')
+    })
+  })
+
+  it('returns focus to the textarea after sending', async () => {
+    mockOnSendMessage.mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    render(
+      <MessageInput
+        activeAuthor="alice"
+        onSendMessage={mockOnSendMessage}
+        isSending={false}
+      />
+    )
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'hello')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => {
+      expect(input).toHaveFocus()
     })
   })
 

@@ -24,7 +24,7 @@ function createHookWrapper() {
   function Wrapper({ children }: { children: ReactNode }) {
     return createElement(QueryClientProvider, { client: queryClient }, children);
   }
-  return Wrapper;
+  return { Wrapper, queryClient };
 }
 
 jest.mock("@/lib/api", () => ({
@@ -63,7 +63,8 @@ describe("useChatMessages", () => {
       message({ id: "m1", createdAt: "2026-04-18T10:00:00.000Z" }),
     ]);
 
-    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
+    const { Wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useChatMessages(), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -83,7 +84,8 @@ describe("useChatMessages", () => {
       .mockResolvedValueOnce([message({ id: "m1", createdAt: "2026-04-18T10:00:00.000Z" })])
       .mockResolvedValueOnce([message({ id: "m2", createdAt: "2026-04-18T10:01:00.000Z" })]);
 
-    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
+    const { Wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useChatMessages(), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -109,11 +111,18 @@ describe("useChatMessages", () => {
       })
     );
 
-    mockedFetchMessages
-      .mockResolvedValueOnce(initialBatch)
-      .mockResolvedValueOnce([message({ id: "older-1", createdAt: "2026-04-18T09:59:00.000Z" })]);
+    const olderPage = [
+      message({ id: "older-1", createdAt: "2026-04-18T09:59:00.000Z" }),
+    ];
 
-    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
+    mockedFetchMessages.mockImplementation(async (opts = {}) => {
+      if (opts.after) return [];
+      if (opts.before === initialBatch[0].createdAt) return olderPage;
+      return initialBatch;
+    });
+
+    const { Wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useChatMessages(), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -121,11 +130,15 @@ describe("useChatMessages", () => {
       await result.current.loadMoreMessages();
     });
 
-    expect(mockedFetchMessages).toHaveBeenNthCalledWith(2, {
-      limit: 100,
-      before: initialBatch[0].createdAt,
+    expect(mockedFetchMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 100,
+        before: initialBatch[0].createdAt,
+      })
+    );
+    await waitFor(() => {
+      expect(result.current.messages[0]?.id).toBe("older-1");
     });
-    expect(result.current.messages[0].id).toBe("older-1");
   });
 
   it("sends a message, updates author, and persists localStorage", async () => {
@@ -139,7 +152,8 @@ describe("useChatMessages", () => {
       })
     );
 
-    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
+    const { Wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useChatMessages(), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     const previousScrollSignal = result.current.scrollToEndSignal;
@@ -159,7 +173,8 @@ describe("useChatMessages", () => {
   it("sets an error when initial load fails", async () => {
     mockedFetchMessages.mockRejectedValue(new Error("Network broken"));
 
-    const { result } = renderHook(() => useChatMessages(), { wrapper: createHookWrapper() });
+    const { Wrapper } = createHookWrapper();
+    const { result } = renderHook(() => useChatMessages(), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 

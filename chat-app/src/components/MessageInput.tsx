@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, KeyboardEvent } from "react";
+import { useState, useEffect, useCallback, useRef, KeyboardEvent } from "react";
 
 interface MessageInputProps {
   activeAuthor: string;
@@ -15,6 +15,17 @@ export default function MessageInput({
 }: MessageInputProps) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const scheduleTextareaFocus = useCallback(() => {
+    window.setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
+  }, []);
+
+  useEffect(() => {
+    scheduleTextareaFocus();
+  }, [scheduleTextareaFocus]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +41,7 @@ export default function MessageInput({
 
     await onSendMessage(trimmedMessage, trimmedAuthor || "You");
     setMessage("");
+    scheduleTextareaFocus();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -47,6 +59,7 @@ export default function MessageInput({
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-2 px-2 md:px-6">
         <div className="flex gap-4">
           <textarea
+            ref={textareaRef}
             placeholder="Message"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
